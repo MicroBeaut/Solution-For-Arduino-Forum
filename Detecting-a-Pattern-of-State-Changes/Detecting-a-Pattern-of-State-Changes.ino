@@ -184,10 +184,10 @@ void StateB() {
 
 bool PatternPredicate(uint8_t id) {
   uint8_t count = patterns[id].count;
-  if (AnalogCompare(voltage, patterns[id].values[count])) {
+  if (AnalogCompare(voltage, patterns[id].values[patterns[id].count])) {
     patterns[id].count++;
   }
-  return count == patterns[id].size;
+  return patterns[id].count == patterns[id].size;
 }
 
 void SelectionTimeout() {
