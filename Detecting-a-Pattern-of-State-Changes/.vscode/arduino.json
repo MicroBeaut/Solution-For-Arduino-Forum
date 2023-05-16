@@ -1,4 +1,0 @@
-{
-    "board": "arduino:avr:uno",
-    "sketch": "Detecting-a-Pattern-of-State-Changes.ino"
-}
