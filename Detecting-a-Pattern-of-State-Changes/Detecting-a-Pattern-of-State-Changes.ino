@@ -93,7 +93,7 @@ const uint8_t numberOfPatterns = sizeof(patterns) / sizeof(PatternState);
 float AnalogRead();
 bool PatternPredicate(uint8_t id);
 void SelectionTimeout();
-bool AnalogCompare(float voltage , float reference, bool start = false);
+bool AnalogCompare(float voltage, float reference, bool start = false);
 void StartTimer(TimerState *timerState);
 void StopTimer(TimerState *timerState);
 bool Timer(TimerState *timerState);
@@ -186,7 +186,7 @@ void StateB() {
 bool PatternPredicate(uint8_t id) {
   if (AnalogCompare(voltage, patterns[id].values[patterns[id].count])) {
     patterns[id].count++;
-    
+
     Serial.print(String(patterns[id].count) + " ");
   }
   return patterns[id].count == patterns[id].size;
@@ -206,7 +206,7 @@ float AnalogRead() {
   return rawValue * VOLTAGE_MAX / 1023;
 }
 
-bool AnalogCompare(float voltage , float reference, bool start) {
+bool AnalogCompare(float voltage, float reference, bool start) {
   float pctError = (voltage - reference ) * 100.0f / reference; // Error Percentage Calculation
   if (pctError > 0 && pctError > PERCENT_ERROR) return false;   // Compare an error with a positive error percentage
   if (pctError < 0 && -pctError > PERCENT_ERROR) return false;  // Compare an error with a negative error percentage
