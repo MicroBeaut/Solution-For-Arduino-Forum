@@ -150,7 +150,7 @@ void Pattern() {
 
   Serial.println();
   Serial.println("Pattern " + String(patterns[state].reference, DECIMAL_POINT) + "V Complated");
-  Serial.println("State " + String(patterns[state].reference, DECIMAL_POINT) + "V Running for 10 Seconds");
+  Serial.println("State " + String(patterns[state].reference, DECIMAL_POINT) + "V Running for " + String(STATE_TIMEOUT / 1000)  + " Seconds");
 
   state = patterns[state].next;
   StartTimer(&stateTimer);
@@ -186,6 +186,7 @@ void StateB() {
 bool PatternPredicate(uint8_t id) {
   if (AnalogCompare(voltage, patterns[id].values[patterns[id].count])) {
     patterns[id].count++;
+    
     Serial.print(String(patterns[id].count) + " ");
   }
   return patterns[id].count == patterns[id].size;
