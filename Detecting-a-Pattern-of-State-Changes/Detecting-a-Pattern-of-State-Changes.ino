@@ -24,6 +24,7 @@
 #define SELECTION_TIMEOUT 5000UL
 #define STATE_TIMEOUT 10000UL
 #define BLINK_DELAY_TIME 500UL
+#define DECIMAL_POINT 1
 
 typedef void (*StateCallback)(void);
 
@@ -45,6 +46,7 @@ typedef struct {
 
 typedef struct {
   State state;
+  State next;
   float reference;
   float *values;
   uint8_t size;
@@ -62,19 +64,17 @@ uint8_t numberOfLEDs = sizeof(ledStatePins) / sizeof(uint8_t);
 bool toggle;
 float voltage;
 
-void PatternA();
-void PatternB();
+void Pattern();
 void StateA();
 void StateB();
 void Selection();
 
-StateCallback stateCallback[] = {PatternA,
-                                 PatternB,
+StateCallback stateCallback[] = {Pattern,
+                                 Pattern,
                                  StateA,
                                  StateB,
                                  Selection
                                 };
-
 
 const float referenceA = 2.5f;
 float voltagePatternA[] = {0.0f, referenceA, 0.0f, referenceA};  // Pattern A
@@ -85,8 +85,8 @@ float voltagePatternB[] = {0.0f, referenceB, 0.0f, referenceB};  // Pattern B
 const uint8_t sizePatternB = sizeof(voltagePatternB) / sizeof(float);
 
 PatternState patterns[] = {
-  {PATTERN_A, referenceA, voltagePatternA, sizePatternA},
-  {PATTERN_B, referenceB, voltagePatternB, sizePatternB},
+  {PATTERN_A, STATE_A, referenceA, voltagePatternA, sizePatternA},
+  {PATTERN_B, STATE_B, referenceB, voltagePatternB, sizePatternB},
 };
 const uint8_t numberOfPatterns = sizeof(patterns) / sizeof(PatternState);
 
@@ -101,6 +101,7 @@ void LEDState(uint8_t ledIndex);
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("Analog Pattern");
   for (uint8_t index = 0; index < numberOfLEDs; index++) {
     pinMode(ledStatePins[index], OUTPUT);
   }
@@ -132,59 +133,60 @@ void Selection() {
     if (AnalogCompare(voltage, patterns[index].reference, true)) {
       state = patterns[index].state;
       patterns[index].count = 0;
+
+      Serial.println();
+      Serial.println("Pattern " + String(patterns[state].reference, DECIMAL_POINT) + " Selected");
+      Serial.print("Count: 0 ");
     }
   }
   LEDState(state);
 }
 
-void PatternA() {
+void Pattern() {
   LEDState(state);
   bool value = PatternPredicate(state);
   if (!value) return;
   StopTimer(&patternTimer);
-  Serial.println("Pattern A - 2.5V Complated");
-  Serial.println("State A: Running for 10 Seconds");
-  state = STATE_A;
-  StartTimer(&stateTimer);
-}
 
-void PatternB() {
-  LEDState(state);
-  bool value = PatternPredicate(state);
-  if (!value) return;
-  StopTimer(&patternTimer);
-  Serial.println("Pattern B - 4.0V Complated");
-  Serial.println("State B: Running for 10 Seconds");
-  state = STATE_B;
+  Serial.println();
+  Serial.println("Pattern " + String(patterns[state].reference, DECIMAL_POINT) + "V Complated");
+  Serial.println("State " + String(patterns[state].reference, DECIMAL_POINT) + "V Running for 10 Seconds");
+
+  state = patterns[state].next;
   StartTimer(&stateTimer);
 }
 
 void StateA() {
   // TODO: SOMETHING
 
-
   // EXAMPLE LED BLINKING FOR 10 SECONDS
   digitalWrite(ledStatePins[state], toggle);
-  if (!stateTimer.timeout) return;
+  if (!stateTimer.timeout) return;            // State Timeout
   digitalWrite(ledStatePins[state], LOW);
+
+  Serial.println("State " + String(patterns[state - 2].reference, DECIMAL_POINT) + "V End");
+
+  // Re-Select
   state = SELECTION;
-  Serial.println("State A: End");
 }
 void StateB() {
   // TODO: SOMETHING
 
-
   // EXAMPLE LED BLINKING FOR 10 SECONDS
   digitalWrite(ledStatePins[state], toggle);
-  if (!stateTimer.timeout) return;
+  if (!stateTimer.timeout) return;            // State Timeout
   digitalWrite(ledStatePins[state], LOW);
+
+  Serial.println("State " + String(patterns[state - 2].reference, DECIMAL_POINT) + "V End");
+
+  // Re-Select
   state = SELECTION;
-  Serial.println("State B: End");
 }
 
 bool PatternPredicate(uint8_t id) {
   if (AnalogCompare(voltage, patterns[id].values[patterns[id].count])) {
     patterns[id].count++;
+    Serial.print(String(patterns[id].count) + " ");
   }
   return patterns[id].count == patterns[id].size;
 }
@@ -192,6 +194,8 @@ bool PatternPredicate(uint8_t id) {
 void SelectionTimeout() {
   if (Timer(&patternTimer)) {
     state = SELECTION;
+
+    Serial.println();
     Serial.println("Pattern Timeout!");
   }
 }
