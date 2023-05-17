@@ -21,7 +21,7 @@
 #define VOLTAGE_MAX 5.0F
 #define PERCENT_ERROR 0.1F
 
-#define SELECTION_TIMEOUT 5000UL
+#define PATTERN_TIMEOUT 5000UL
 #define STATE_TIMEOUT 10000UL
 #define BLINK_DELAY_TIME 500UL
 #define DECIMAL_POINT 1
@@ -108,7 +108,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
 
   stateTimer.delayTime = STATE_TIMEOUT;
-  patternTimer.delayTime = SELECTION_TIMEOUT;
+  patternTimer.delayTime = PATTERN_TIMEOUT;
   intervalTimer.delayTime = BLINK_DELAY_TIME;
   intervalTimer.autoReset = true;
   StartTimer(&intervalTimer);
@@ -136,6 +136,7 @@ void Selection() {
 
       Serial.println();
       Serial.println("Pattern " + String(patterns[state].reference, DECIMAL_POINT) + " Selected");
+      Serial.println("Pattern Timeout: " + String(PATTERN_TIMEOUT / 1000UL) + " Second(s)");
       Serial.print("Count: 0 ");
     }
   }
@@ -150,7 +151,7 @@ void Pattern() {
 
   Serial.println();
   Serial.println("Pattern " + String(patterns[state].reference, DECIMAL_POINT) + "V Complated");
-  Serial.println("State " + String(patterns[state].reference, DECIMAL_POINT) + "V Running for " + String(STATE_TIMEOUT / 1000)  + " Seconds");
+  Serial.println("State " + String(patterns[state].reference, DECIMAL_POINT) + "V Running for " + String(STATE_TIMEOUT / 1000UL)  + " Second(s)");
 
   state = patterns[state].next;
   StartTimer(&stateTimer);
