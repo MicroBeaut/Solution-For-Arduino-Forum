@@ -1,39 +1,52 @@
 /*
   Solution For:
-  Topic:      Detecting a Pattern of State Changes
-  Category:   Programming Questions
-  Link:       https://forum.arduino.cc/t/detecting-a-pattern-of-state-changes/1126739/18
+  Topic: Detecting a Pattern of State Changes
+  Category: Programming Questions
+  Link: https://forum.arduino.cc/t/detecting-a-pattern-of-state-changes/1126739/18
 
-  Sketch:     Detecting-a-Pattern-of-State-Changes.ino
-  Date:       15-May-23
-  Author:     MicroBeaut (μB)
+  Sketch: Detecting-a-Pattern-of-State-Changes.ino
+  Date: 15-May-23
+  Author: MicroBeaut (μB)
 */
 
 #include <Arduino.h>
+#include <LiquidCrystal_I2C.h>
+#include <Servo.h>
 
-#define ledPatternAPin 8
-#define ledPatternBPin 9
-#define ledStateAPin 10
-#define ledStateBPin 11
-#define ledSelectionPin 12
-#define analogInputPin A0
+// Analog Input
+#define Pot1_Input_Pin A0
+#define Pot2_Input_Pin A1
+#define C_Detector_LDR_Pin A2
+#define Motor_Voltage_Pin A3
 
-#define VOLTAGE_MAX 5.0F
-#define PERCENT_ERROR 0.1F
+// LED Output
+#define Pot1_LED_Pin 8
+#define Pot2_LED_Pin 7
+#define C_Detector_LED_Pin 4
+#define Motor_LED_Pin 3
 
-#define PATTERN_TIMEOUT 5000UL
-#define STATE_TIMEOUT 10000UL
-#define BLINK_DELAY_TIME 500UL
+// Servo Output (PWM)
+#define Servo_Tensioner_Pin 11
+#define Servo_Arm_Lock_Pin 10
+#define Servo_Door_Pin 9
+#define Servo_Dispenser_Pin 6
+
+#define VOLTAGE_MAX 5.0f
+#define PERCENT_ERROR 5.0f
+
+#define PATTERN_TIMEOUT 10000UL
+#define INTERVAL_TIME 100UL
+#define BLINK_TIME 500UL
 #define DECIMAL_POINT 1
 
-typedef void (*StateCallback)(void);
+// LDR Characteristics
+#define GAMMA 0.7f
+#define RL10  50.0f
 
 enum State {
-  PATTERN_A,
-  PATTERN_B,
-  STATE_A,
-  STATE_B,
-  SELECTION
+  SELECTION,
+  PREDICATE,
+  COMPLETED
 };
 
 typedef struct {
@@ -50,160 +63,180 @@ typedef struct {
   float reference;
   float *values;
   uint8_t size;
-  uint8_t count;
 } PatternState;
+
+const uint8_t ledStatePins[] = {Pot1_LED_Pin, Pot2_LED_Pin, C_Detector_LED_Pin, C_Detector_LDR_Pin, Motor_LED_Pin};
+uint8_t numberOfLEDs = sizeof(ledStatePins) / sizeof(uint8_t);
+
+const uint8_t potPins[] = {Pot1_Input_Pin, Pot2_Input_Pin};
+uint8_t numberOfPotPins = sizeof(potPins) / sizeof(uint8_t);
+
+void Selection();
+void PatternValidation();
+void PatternCompleted();
+
+typedef void (*StateCallback)(void);
+StateCallback stateCallback[] = {
+  Selection,
+  PatternValidation,
+  PatternCompleted
+};
+
+const float referenceA = 2.5f;
+float voltagePatternA[] = {0.0f, referenceA, 0.0f, referenceA, 0.0f}; // Pattern A
+const uint8_t sizePatternA = sizeof(voltagePatternA) / sizeof(float);
+
+const float referenceB = 4.0f;
+float voltagePatternB[] = {0.0f, referenceB, 0.0f, referenceB, 0.0f}; // Pattern B
+const uint8_t sizePatternB = sizeof(voltagePatternB) / sizeof(float);
+
+PatternState patterns[] = {
+  {PREDICATE, COMPLETED, referenceA, voltagePatternA, sizePatternA},
+  {PREDICATE, COMPLETED, referenceB, voltagePatternB, sizePatternB},
+};
+const uint8_t numberOfPatterns = sizeof(patterns) / sizeof(PatternState);
 
 State state;
 TimerState patternTimer;
 TimerState intervalTimer;
-TimerState stateTimer;
+TimerState blinkTimer;
 
-uint8_t ledStatePins[] = {ledPatternAPin, ledPatternBPin, ledStateAPin, ledStateBPin, ledSelectionPin};
-uint8_t numberOfLEDs = sizeof(ledStatePins) / sizeof(uint8_t);
+Servo Tensioner;
+Servo Arm_Lock;
+Servo Door;
+Servo Dispenser;
 
 bool toggle;
-float voltage;
+float Pot1_Voltage;
+float Pot2_Voltage;
+float LDR_Voltage;
+float Motor_Voltage;
 
-void Pattern();
-void StateA();
-void StateB();
-void Selection();
+uint8_t Counter;
+int Pot_Chooser = -1;
+bool Launch_Activated = false;
 
-StateCallback stateCallback[] = {Pattern,
-                                 Pattern,
-                                 StateA,
-                                 StateB,
-                                 Selection
-                                };
+LiquidCrystal_I2C lcd(0x27, 20, 4);
 
-const float referenceA = 2.5f;
-float voltagePatternA[] = {0.0f, referenceA, 0.0f, referenceA};  // Pattern A
-const uint8_t sizePatternA = sizeof(voltagePatternA) / sizeof(float);
-
-const float referenceB = 4.0f;
-float voltagePatternB[] = {0.0f, referenceB, 0.0f, referenceB};  // Pattern B
-const uint8_t sizePatternB = sizeof(voltagePatternB) / sizeof(float);
-
-PatternState patterns[] = {
-  {PATTERN_A, STATE_A, referenceA, voltagePatternA, sizePatternA},
-  {PATTERN_B, STATE_B, referenceB, voltagePatternB, sizePatternB},
-};
-const uint8_t numberOfPatterns = sizeof(patterns) / sizeof(PatternState);
-
-float AnalogRead();
-bool PatternPredicate(uint8_t id);
+void ServoInit(int tensionerAngle, int armlockAngel, int doorAngle, int dispenserAngle);
+float AnalogScale(uint8_t pin);
+bool PatternPredicate(float voltage, uint8_t id);
 void SelectionTimeout();
 bool AnalogCompare(float voltage, float reference, bool start = false);
 void StartTimer(TimerState *timerState);
 void StopTimer(TimerState *timerState);
 bool Timer(TimerState *timerState);
-void LEDState(uint8_t ledIndex);
+
+void Launch();
+void Blink();
+void StatusLCD();
+void StatusLED(uint8_t ledIndex);
+String PadLeft(String message, int length, char paddingChar);
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("Analog Pattern");
   for (uint8_t index = 0; index < numberOfLEDs; index++) {
     pinMode(ledStatePins[index], OUTPUT);
   }
   pinMode(LED_BUILTIN, OUTPUT);
 
-  stateTimer.delayTime = STATE_TIMEOUT;
+  Tensioner.attach(Servo_Tensioner_Pin);
+  Arm_Lock.attach(Servo_Arm_Lock_Pin);
+  Door.attach(Servo_Door_Pin);
+  Dispenser.attach(Servo_Dispenser_Pin);
+
   patternTimer.delayTime = PATTERN_TIMEOUT;
-  intervalTimer.delayTime = BLINK_DELAY_TIME;
+  intervalTimer.delayTime = INTERVAL_TIME;
   intervalTimer.autoReset = true;
   StartTimer(&intervalTimer);
+  blinkTimer.delayTime = BLINK_TIME;
+  blinkTimer.autoReset = true;
+  StartTimer(&blinkTimer);
 
-  state = SELECTION;  // Begin State = SELECTION
+  lcd.init();
+  lcd.backlight();
+
+  state = SELECTION;            // Begin State = SELECTION
 }
 
 void loop() {
-  voltage = AnalogRead();
-  stateCallback[state]();
-  SelectionTimeout();
+  Pot1_Voltage = AnalogScale(Pot1_Input_Pin);
+  Pot2_Voltage = AnalogScale(Pot2_Input_Pin);
+  LDR_Voltage = AnalogScale(C_Detector_LDR_Pin);
+  Motor_Voltage = AnalogScale(Motor_Voltage_Pin);
 
-  if (Timer(&intervalTimer)) {
-    toggle = !toggle;
-    digitalWrite(LED_BUILTIN, toggle);
+  stateCallback[state]();
+  Launch();
+  Blink();
+  StatusLCD();
+}
+
+void Launch() {
+  // TODO: SOMETHING
+  digitalWrite(Motor_LED_Pin, Launch_Activated);
+  if (Launch_Activated) {
+    ServoAngle(180, 0, 0, 0);
+  } else {
+    ServoAngle(0, 180, 180, 180); // Initial Servo Angle
   }
-  Timer(&stateTimer);
+}
+
+void Blink() {
+  if (!Timer(&blinkTimer)) return;
+  toggle = !toggle;
+  digitalWrite(LED_BUILTIN, toggle);
 }
 
 void Selection() {
+  StatusLED(0, false);
   for (uint8_t index = 0; index < numberOfPatterns; index++) {
-    if (AnalogCompare(voltage, patterns[index].reference, true)) {
-      state = patterns[index].state;
-      patterns[index].count = 0;
-
-      Serial.println();
-      Serial.println("Pattern " + String(patterns[state].reference, DECIMAL_POINT) + " Selected");
-      Serial.println("Pattern Timeout: " + String(PATTERN_TIMEOUT / 1000UL) + " Second(s)");
-      Serial.print("Count: 0 ");
+    if (AnalogCompare(Motor_Voltage, patterns[index].reference, true)) {
+      Pot_Chooser = index;
+      state = patterns[Pot_Chooser].state;
+      Launch_Activated = false;
+      StatusLED(Pot_Chooser, true);
+      Counter = 0;
     }
   }
-  LEDState(state);
 }
 
-void Pattern() {
-  LEDState(state);
-  bool value = PatternPredicate(state);
+void PatternValidation() {
+  SelectionTimeout();
+  float voltage = AnalogScale(potPins[Pot_Chooser]);
+  bool value = PatternPredicate(voltage, Pot_Chooser);
   if (!value) return;
   StopTimer(&patternTimer);
-
-  Serial.println();
-  Serial.println("Pattern " + String(patterns[state].reference, DECIMAL_POINT) + "V Complated");
-  Serial.println("State " + String(patterns[state].reference, DECIMAL_POINT) + "V Running for " + String(STATE_TIMEOUT / 1000UL)  + " Second(s)");
-
-  state = patterns[state].next;
-  StartTimer(&stateTimer);
+  StatusLED(Pot_Chooser, false);
+  state = patterns[Pot_Chooser].next;
 }
 
-void StateA() {
+void PatternCompleted() {
   // TODO: SOMETHING
-
-  // EXAMPLE LED BLINKING FOR 10 SECONDS
-  digitalWrite(ledStatePins[state], toggle);
-  if (!stateTimer.timeout) return;            // State Timeout
-  digitalWrite(ledStatePins[state], LOW);
-
-  Serial.println("State " + String(patterns[state - 2].reference, DECIMAL_POINT) + "V End");
-
-  // Re-Select
-  state = SELECTION;
-}
-void StateB() {
-  // TODO: SOMETHING
-
-  // EXAMPLE LED BLINKING FOR 10 SECONDS
-  digitalWrite(ledStatePins[state], toggle);
-  if (!stateTimer.timeout) return;            // State Timeout
-  digitalWrite(ledStatePins[state], LOW);
-
-  Serial.println("State " + String(patterns[state - 2].reference, DECIMAL_POINT) + "V End");
-
-  // Re-Select
+  Launch_Activated = true;
   state = SELECTION;
 }
 
-bool PatternPredicate(uint8_t id) {
-  if (AnalogCompare(voltage, patterns[id].values[patterns[id].count])) {
-    patterns[id].count++;
-
-    Serial.print(String(patterns[id].count) + " ");
+bool PatternPredicate(float voltage, uint8_t id) {
+  if (AnalogCompare(voltage, patterns[id].values[Counter])) {
+    Counter++;
   }
-  return patterns[id].count == patterns[id].size;
+  return Counter == patterns[id].size;
 }
 
 void SelectionTimeout() {
   if (Timer(&patternTimer)) {
     state = SELECTION;
-
-    Serial.println();
-    Serial.println("Pattern Timeout!");
   }
 }
 
-float AnalogRead() {
-  long rawValue = analogRead(analogInputPin);
+void ServoAngle(int tensionerAngle, int armlockAngel, int doorAngle, int dispenserAngle) {
+  Tensioner.write(tensionerAngle);
+  Arm_Lock.write(armlockAngel);
+  Door.write(doorAngle);
+  Dispenser.write(dispenserAngle);
+}
+
+float AnalogScale(uint8_t pin) {
+  long rawValue = analogRead(pin);
   return rawValue * VOLTAGE_MAX / 1023;
 }
 
@@ -213,6 +246,11 @@ bool AnalogCompare(float voltage, float reference, bool start) {
   if (pctError < 0 && -pctError > PERCENT_ERROR) return false;  // Compare an error with a negative error percentage
   if (start) StartTimer(&patternTimer);                         // Start Timout Timer
   return true;                                                  // The voltage value is in range.
+}
+
+float Lux(float voltage) {
+  float resistance = 2000 * voltage / (1 - voltage / 5);
+  return pow(RL10 * 1e3 * pow(10, GAMMA) / resistance, (1 / GAMMA));
 }
 
 void StartTimer(TimerState *timerState) {
@@ -235,10 +273,50 @@ bool Timer(TimerState *timerState) {
   return true;
 }
 
-void LEDState(uint8_t ledIndex) {
-  for (uint8_t index = 0; index < numberOfLEDs; index++) {
-    if (index == ledIndex) continue;
+void StatusLCD() {
+  if (!Timer(&intervalTimer)) return;
+  lcd.setCursor(0, 0);
+  lcd.print("P1=");
+  lcd.print(String(Pot1_Voltage, DECIMAL_POINT));
+  lcd.setCursor(8, 0);
+  lcd.print("P2=");
+  lcd.print(String(Pot2_Voltage, DECIMAL_POINT));
+  lcd.setCursor(0, 1);
+  lcd.print("MT=");
+  lcd.print(String(Motor_Voltage, DECIMAL_POINT));
+  lcd.setCursor(8, 1);
+  lcd.print("LD=");
+  lcd.print(String(LDR_Voltage, DECIMAL_POINT));
+  lcd.setCursor(0, 2);
+  lcd.print("Lux:=");
+  String lux = PadLeft(String(Lux(LDR_Voltage), DECIMAL_POINT), 9, ' ');
+  lcd.print(lux);
+  lcd.setCursor(0, 3);
+  lcd.print("Ref:=");
+  float reference = Pot_Chooser < 0 ? 0.0 : patterns[Pot_Chooser].values[Counter];
+  lcd.print(String(reference, DECIMAL_POINT));
+  lcd.setCursor(10, 3);
+  lcd.print("C:=");
+  lcd.print(Counter);
+  lcd.setCursor(15, 3);
+  lcd.print("A:=");
+  lcd.print(Launch_Activated);
+
+}
+
+void StatusLED(uint8_t ledIndex, bool set) {
+  if (ledIndex >= numberOfPatterns) return;
+  for (uint8_t index = 0; index < numberOfPatterns; index++) {
     digitalWrite(ledStatePins[index], LOW);
   }
-  digitalWrite(ledStatePins[ledIndex], HIGH);
+  if (set) digitalWrite(ledStatePins[ledIndex], HIGH);
+}
+
+// return string by padding charecter on the Left of the String
+String PadLeft(String message, int length, char paddingChar) {
+  int lenPad = length - message.length();
+  for (int index = 0; index < lenPad; index++) {
+    message = paddingChar + message;
+  }
+  return message.substring(0, length);
 }
