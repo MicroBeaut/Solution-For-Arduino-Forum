@@ -23,13 +23,22 @@
 
 LiquidCrystal_I2C lcd(0x27, 20, 2);
 
+enum SelectorState {
+  SHORT_CIRCUTI,
+  OPEN_CIRCUIT,
+  NORMAL
+}
+
 unsigned long startTime;
 float analogValue;
 uint8_t position;
 
+SelectorState state;
+
 void setup() {
   lcd.init();
   lcd.backlight();
+  
 }
 
 void loop() {
