@@ -8,7 +8,6 @@
   Author: MicroBeaut (μB)
 */
 
-
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 
@@ -21,66 +20,93 @@
 #define analogInputPin A0
 #define intervalTime 100UL
 
+const float openCircuit = VOLTAGE / DEVIDER * 0.25;
+const float shortCircuit = VOLTAGE - openCircuit;
+
 LiquidCrystal_I2C lcd(0x27, 20, 2);
 
-enum SelectorState {
-  SHORT_CIRCUTI,
+enum State {
   OPEN_CIRCUIT,
+  SHORT_CIRCUTI,
   NORMAL
-}
+};
 
 unsigned long startTime;
 float analogValue;
 uint8_t position;
 
-SelectorState state;
+State state;
+
+void analogCondition();
+State getState(float value);
+uint8_t getPosition();
+bool isInRange(float voltage, float reference);
+bool isIntervalTimout();
+void lcdDisplay();
 
 void setup() {
   lcd.init();
   lcd.backlight();
-  
+
 }
 
 void loop() {
-  AnalogCondition();
-  position = PositionDetection();
-  Display();
+  analogCondition();
+  position = getPosition();
+  lcdDisplay();
 }
 
-void AnalogCondition() {
+void analogCondition() {
   int rawValue = analogRead(analogInputPin);
   analogValue = rawValue * VOLTAGE / RAW_MAX;
+  state = getState(analogValue);
 }
 
-uint8_t PositionDetection() {
+State getState(float value) {
+  if (value <= openCircuit) return OPEN_CIRCUIT;
+  if (value >= shortCircuit) return SHORT_CIRCUTI;
+  return NORMAL;
+}
+
+uint8_t getPosition() {
   for (uint8_t index = 1; index <= NUMBER_OF_POSITIONS; index++) {
     float reference = index * VOLTAGE / DEVIDER;
-    if (AnalogCompare(analogValue, reference)) return index;
+    if (isInRange(analogValue, reference)) return index;
   }
   return 0;
 }
 
-void Display() {
-  if (!Interval()) return;
-  lcd.setCursor(0, 0);
-  lcd.print("Voltage: ");
-  lcd.print(String(analogValue, 3));
-  lcd.setCursor(0, 1);
-  lcd.print("Position: ");
-  char pos[3];
-  sprintf(pos, "%02d", position);
-  lcd.print(pos);
+bool isInRange(float voltage, float reference) {
+  if (voltage > reference + ERROR_LIMIT) return false;
+  if (voltage < reference - ERROR_LIMIT) return false;
+  return true;
 }
 
-bool Interval() {
+bool isIntervalTimout() {
   unsigned long elapsedTime = micros() - startTime;
   if (elapsedTime < intervalTime) return false;
   startTime = micros();
   return true;
 }
 
-bool AnalogCompare(float voltage, float reference) {
-  if (voltage > reference + ERROR_LIMIT) return false;  // Compare an error with a positive error percentage
-  if (voltage < reference - ERROR_LIMIT) return false;  // Compare an error with a negative error percentage
-  return true;
+void lcdDisplay() {
+  if (!isIntervalTimout()) return;
+  lcd.setCursor(0, 0);
+  lcd.print("Voltage: ");
+  lcd.print(String(analogValue, 3));
+  lcd.setCursor(0, 1);
+  lcd.print("Position: ");
+  switch (state) {
+    case OPEN_CIRCUIT:
+      lcd.print("OC");
+      break;
+    case SHORT_CIRCUTI:
+      lcd.print("SC");
+      break;
+    default:
+      char pos[3];
+      sprintf(pos, "%02d", position);
+      lcd.print(pos);
+      break;
+  }
 }
