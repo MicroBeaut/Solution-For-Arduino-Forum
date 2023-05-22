@@ -13,19 +13,21 @@
 
 #define NUMBER_OF_POSITIONS 12  // NUMBER OF POSITIONS
 #define DEVIDER 13.0f           // NUMBER OF RESISTORS
+
 #define VOLTAGE 5.0f            // VOLTAGE MAL
 #define RAW_MAX 1024.0f         // ANALOG RESOLUTION
-#define ERROR_LIMIT 0.25f       // ERROR VOLTAGE LIMIT
+#define ERROR_LIMIT 0.10f       // ± ERROR VOLTAGE LIMIT 
 
 #define analogInputPin A0
 #define intervalTime 100UL
 
-const float openCircuit = VOLTAGE / DEVIDER * 0.25;
+const float openCircuit = VOLTAGE / DEVIDER * 0.5f;
 const float shortCircuit = VOLTAGE - openCircuit;
 
 LiquidCrystal_I2C lcd(0x27, 20, 2);
 
 enum State {
+  ERROR,
   NORMAL,
   OPEN_CIRCUIT,
   SHORT_CIRCUTI
@@ -38,7 +40,7 @@ uint8_t position;
 State state;
 
 void analogCondition();
-State getState(float value);
+State getError(float value);
 uint8_t getPosition();
 bool isInRange(float voltage, float reference);
 bool isIntervalTimout();
@@ -58,20 +60,23 @@ void loop() {
 void analogCondition() {
   int rawValue = analogRead(analogInputPin);
   analogValue = rawValue * VOLTAGE / RAW_MAX;
-  state = getState(analogValue);
 }
 
-State getState(float value) {
+State getError(float value) {
   if (value <= openCircuit) return OPEN_CIRCUIT;
   if (value >= shortCircuit) return SHORT_CIRCUTI;
-  return NORMAL;
+  return ERROR;
 }
 
 uint8_t getPosition() {
   for (uint8_t index = 1; index <= NUMBER_OF_POSITIONS; index++) {
     float reference = index * VOLTAGE / DEVIDER;
-    if (isInRange(analogValue, reference)) return index;
+    if (isInRange(analogValue, reference)) {
+      state = NORMAL;
+      return index;
+    }
   }
+  state = getError(analogValue);
   return 0;
 }
 
@@ -95,17 +100,22 @@ void lcdDisplay() {
   lcd.print(String(analogValue, 3));
   lcd.setCursor(0, 1);
   lcd.print("Position: ");
+  char pos[3];
+  sprintf(pos, "%02d", position);
+  lcd.print(pos);
+  lcd.setCursor(13, 1);
   switch (state) {
+    case NORMAL:
+      lcd.print("NR");
+      break;
+    case ERROR:
+      lcd.print("ER");
+      break;
     case OPEN_CIRCUIT:
       lcd.print("OC");
       break;
     case SHORT_CIRCUTI:
       lcd.print("SC");
-      break;
-    default:
-      char pos[3];
-      sprintf(pos, "%02d", position);
-      lcd.print(pos);
       break;
   }
 }
