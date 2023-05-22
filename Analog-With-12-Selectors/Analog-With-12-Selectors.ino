@@ -26,9 +26,9 @@ const float shortCircuit = VOLTAGE - openCircuit;
 LiquidCrystal_I2C lcd(0x27, 20, 2);
 
 enum State {
+  NORMAL,
   OPEN_CIRCUIT,
-  SHORT_CIRCUTI,
-  NORMAL
+  SHORT_CIRCUTI
 };
 
 unsigned long startTime;
@@ -47,7 +47,6 @@ void lcdDisplay();
 void setup() {
   lcd.init();
   lcd.backlight();
-
 }
 
 void loop() {
